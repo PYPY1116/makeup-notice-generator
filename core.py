@@ -124,8 +124,12 @@ def load_attendance(file_bytes, filename):
     wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
     ws = wb.active
     title = ws["A1"].value or filename
-    level = detect_level(filename)
-    period = detect_period(filename)
+    title_str = str(title) if title else ""
+
+    # 優先用檔名判斷班級／日夜；檔名判斷不出來時（例如檔名被簡化、縮寫過），
+    # 改抓 Excel 內 A1 儲存格的標題文字來判斷，因為標題通常保留完整班級名稱。
+    level = detect_level(filename) or detect_level(title_str)
+    period = detect_period(filename) or detect_period(title_str)
 
     # date headers live in row 3, columns E..N (index 4..13, 0-based)
     header_row = next(ws.iter_rows(min_row=3, max_row=3, values_only=True))
