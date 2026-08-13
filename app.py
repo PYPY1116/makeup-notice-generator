@@ -1,7 +1,7 @@
 import io
 import zipfile
 import streamlit as st
-from core import load_course_lookup, build_student_records, build_notice_docx
+from core import load_course_lookup, build_student_records, build_notice_docx, format_level_period
 
 st.set_page_config(page_title="補課通知單產生器", page_icon="📋", layout="centered")
 
@@ -11,8 +11,10 @@ st.caption("上傳簽到表與課程名稱，一鍵產出每位學員的補課�
 with st.expander("使用說明", expanded=False):
     st.markdown(
         """
-        1. 上傳一份或多份「簽到表」Excel（檔名需包含班級關鍵字：**初級 / 中級 / 高級 / 研經**）
-        2. 上傳一份「課程名稱」Excel（各班級一個分頁，分頁名稱需為 初級/中級/高級/研經）
+        1. 上傳一份或多份「簽到表」Excel（檔名需包含班級關鍵字：**初級 / 中級 / 高級 / 研經**，
+           以及日夜關鍵字：**日 / 夜**，例如「初級夜簽到表.xlsx」）
+        2. 上傳一份「課程名稱」Excel：初級／中級／高級 各一個分頁（日夜共用），
+           研經班日夜課表不同，需分開為「研經日」「研經夜」兩個分頁
         3. 按下「產生補課通知單」
         4. 檢查預覽結果，確認無誤後下載 ZIP（內含每位學員的 Word 通知單）
         """
@@ -63,7 +65,7 @@ if generate:
             {
                 "姓名": s["name"],
                 "法名": s.get("dharma_name") or "",
-                "班級": s.get("level") or "",
+                "班級": format_level_period(s.get("level"), s.get("period")),
                 "組別": s.get("group") or "",
                 "缺曠堂數": s.get("absence_count"),
                 "缺曠日期": "、".join(i["date"] for i in s["items"]),

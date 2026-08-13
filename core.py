@@ -8,6 +8,7 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
 LEVELS = ["初級", "中級", "高級", "研經"]
+PERIODS = ["日", "夜"]
 FONT_NAME = "微軟正黑體"
 
 
@@ -15,6 +16,15 @@ def detect_level(filename: str):
     for lv in LEVELS:
         if lv in filename:
             return lv
+    return None
+
+
+def detect_period(filename: str):
+    """偵測檔名中的日班／夜班，回傳 '日' 或 '夜'；偵測不到回傳 None。"""
+    if "夜" in filename:
+        return "夜"
+    if "日" in filename:
+        return "日"
     return None
 
 
@@ -77,6 +87,7 @@ def load_attendance(file_bytes, filename):
     ws = wb.active
     title = ws["A1"].value or filename
     level = detect_level(filename)
+    period = detect_period(filename)
 
     # date headers live in row 3, columns E..N (index 4..13, 0-based)
     header_row = next(ws.iter_rows(min_row=3, max_row=3, values_only=True))
@@ -126,10 +137,31 @@ def load_attendance(file_bytes, filename):
             "absence_count": len(absence_dates),
             "absence_dates": absence_dates,
             "level": level,
+            "period": period,
             "class_title": title,
             "source_file": filename,
         })
-    return title, level, students, warnings
+    return title, level, period, students, warnings
+
+
+PERIOD_LABELS = {"日": "日班", "夜": "夜班"}
+
+# 研經班日夜課表不同，需分開對應；初級/中級/高級日夜課表相同，共用同一份課表分頁
+LEVELS_WITH_SEPARATE_PERIOD_SCHEDULE = {"研經"}
+
+
+def course_sheet_key(level, period):
+    """決定要用課程名稱 Excel 裡的哪個分頁名稱來查課表。"""
+    if level in LEVELS_WITH_SEPARATE_PERIOD_SCHEDULE and period:
+        return f"{level}{period}"
+    return level
+
+
+def format_level_period(level, period):
+    """組合班別顯示文字，例如「初級夜班」「研經日班」。"""
+    level_str = level or ""
+    period_label = PERIOD_LABELS.get(period, "")
+    return f"{level_str}{period_label}"
 
 
 def build_student_records(attendance_files, course_lookup):
@@ -141,11 +173,16 @@ def build_student_records(attendance_files, course_lookup):
     all_students = []
     warnings = []
     for filename, file_bytes in attendance_files:
-        title, level, students, cell_warnings = load_attendance(file_bytes, filename)
+        title, level, period, students, cell_warnings = load_attendance(file_bytes, filename)
         warnings.extend(cell_warnings)
-        date_map = course_lookup.get(level, {})
         if level is None:
             warnings.append(f"檔名「{filename}」無法判斷班級（初級/中級/高級/研經），將無法對應課程名稱。")
+        if period is None:
+            warnings.append(f"檔名「{filename}」無法判斷日班／夜班（檔名需包含「日」或「夜」），班別將不顯示日夜。")
+            if level in LEVELS_WITH_SEPARATE_PERIOD_SCHEDULE:
+                warnings.append(f"檔名「{filename}」屬於研經班但無法判斷日夜，可能對應到錯誤的課表。")
+        sheet_key = course_sheet_key(level, period)
+        date_map = course_lookup.get(sheet_key, {})
         for s in students:
             items = []
             for d in s["absence_dates"]:
@@ -280,11 +317,13 @@ def build_notice_docx(student, org_name=ORG_NAME, deadline_text=DEFAULT_DEADLINE
 
     doc.add_paragraph()
 
-    # 班別/姓名/法名
+    # 班別（含日夜）／組別／姓名／法名
+    level_display = format_level_period(student.get("level"), student.get("period"))
     p = doc.add_paragraph()
     _tmpl_run(
         p,
-        f"班別：{student.get('level') or ''}　　姓名：{student.get('name','')}　　"
+        f"班別：{level_display}　　組別：{student.get('group') or ''}　　"
+        f"姓名：{student.get('name','')}　　"
         f"法名：{student.get('dharma_name') or ''}",
     )
 
