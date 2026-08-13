@@ -152,7 +152,7 @@ def build_student_records(attendance_files, course_lookup):
                 course = date_map.get(d)
                 if course is None:
                     course = "(查無對應課程，請人工確認)"
-                    warnings.append(f"{s['name']}（{filename}）的缺曠日期 {d} 在補課名單中找不到對應課程。")
+                    warnings.append(f"{s['name']}（{filename}）的缺曠日期 {d} 在課程名稱中找不到對應課程。")
                 items.append({"date": d, "course": course})
             s["items"] = items
         all_students.extend(students)

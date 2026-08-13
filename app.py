@@ -6,13 +6,13 @@ from core import load_course_lookup, build_student_records, build_notice_docx
 st.set_page_config(page_title="補課通知單產生器", page_icon="📋", layout="centered")
 
 st.title("📋 補課通知單產生器")
-st.caption("上傳簽到表與補課名單，一鍵產出每位學員的補課通知單（Word）")
+st.caption("上傳簽到表與課程名稱，一鍵產出每位學員的補課通知單（Word）")
 
 with st.expander("使用說明", expanded=False):
     st.markdown(
         """
         1. 上傳一份或多份「簽到表」Excel（檔名需包含班級關鍵字：**初級 / 中級 / 高級 / 研經**）
-        2. 上傳一份「補課名單」Excel（各班級一個分頁，分頁名稱需為 初級/中級/高級/研經）
+        2. 上傳一份「課程名稱」Excel（各班級一個分頁，分頁名稱需為 初級/中級/高級/研經）
         3. 按下「產生補課通知單」
         4. 檢查預覽結果，確認無誤後下載 ZIP（內含每位學員的 Word 通知單）
         """
@@ -23,8 +23,8 @@ attendance_uploads = st.file_uploader(
     "簽到表 Excel（.xlsx）", type=["xlsx"], accept_multiple_files=True, key="attendance"
 )
 
-st.subheader("② 上傳補課名單")
-course_upload = st.file_uploader("補課名單 Excel（.xlsx）", type=["xlsx"], key="course")
+st.subheader("② 上傳課程名稱")
+course_upload = st.file_uploader("課程名稱 Excel（.xlsx）", type=["xlsx"], key="course")
 
 st.subheader("③ 補課期限與說明（會套用到本批全部通知單）")
 col1, col2 = st.columns(2)
