@@ -20,10 +20,28 @@ def detect_level(filename: str):
 
 
 def detect_period(filename: str):
-    """偵測檔名中的日班／夜班，回傳 '日' 或 '夜'；偵測不到回傳 None。"""
-    if "夜" in filename:
+    """
+    偵測檔名中的日班／夜班，回傳 '日' 或 '夜'；偵測不到回傳 None。
+
+    支援兩種常見排法：
+    1. 班級關鍵字「後面」緊接著日／夜，例如「初級夜」
+    2. 班級關鍵字「前面」緊接著日／夜，例如「四日研經」
+       （「日」代表日班，前面的數字代表星期幾，例如「四」= 星期四）
+
+    找不到以上兩種明確排法時，才退而求其次找「日班」／「夜班」這種完整字樣。
+    這樣可以避免誤判像單純「四日禪修營」這種與日夜班完全無關、卻剛好含有「日」字的檔名。
+    """
+    level = detect_level(filename)
+    if level:
+        idx = filename.find(level)
+        end_idx = idx + len(level)
+        if end_idx < len(filename) and filename[end_idx] in ("日", "夜"):
+            return filename[end_idx]
+        if idx > 0 and filename[idx - 1] in ("日", "夜"):
+            return filename[idx - 1]
+    if "夜班" in filename:
         return "夜"
-    if "日" in filename:
+    if "日班" in filename:
         return "日"
     return None
 
@@ -49,6 +67,14 @@ KNOWN_CODES = {"V", "O", "L", "LL", "M", "ML"}
 ABSENCE_CODE = "O"
 
 
+def _extract_leading_code(s):
+    """從字串開頭抓出已知代碼，例如「V座禪」開頭是 V。找不到回傳 None。"""
+    for code in sorted(KNOWN_CODES, key=len, reverse=True):
+        if s.startswith(code):
+            return code
+    return None
+
+
 def _classify_status_cell(raw_value):
     """
     Classifies one attendance-status cell.
@@ -70,9 +96,21 @@ def _classify_status_cell(raw_value):
         if len(parts) > 1 and all(p in KNOWN_CODES for p in parts):
             return "ambiguous", s
 
-    # allow a leading label like "夜研 V" — the code is the last whitespace token
-    tokens = s.split()
-    code = tokens[-1] if tokens else s
+    if s in KNOWN_CODES:
+        code = s
+    else:
+        code = None
+        tokens = s.split()
+        if tokens:
+            # 「標籤 代碼」格式，例如「夜研 V」→ 代碼在最後一個字
+            if tokens[-1] in KNOWN_CODES:
+                code = tokens[-1]
+            # 「代碼 (備註)」格式，例如「V (8/20補M)」「M (7/30補)」→ 代碼在第一個字
+            elif tokens[0] in KNOWN_CODES:
+                code = tokens[0]
+        if code is None:
+            # 代碼與中文字直接相連、沒有空白，例如「V座禪」
+            code = _extract_leading_code(s)
 
     if code == ABSENCE_CODE:
         return "absence", s
@@ -146,15 +184,27 @@ def load_attendance(file_bytes, filename):
 
 PERIOD_LABELS = {"日": "日班", "夜": "夜班"}
 
-# 研經班日夜課表不同，需分開對應；初級/中級/高級日夜課表相同，共用同一份課表分頁
+# 研經班若有分開的日/夜課表（分頁「研經日」「研經夜」），會優先對應；
+# 若課程名稱 Excel 沒有分開（只有單一「研經」分頁），則自動退回共用該分頁。
 LEVELS_WITH_SEPARATE_PERIOD_SCHEDULE = {"研經"}
 
 
-def course_sheet_key(level, period):
-    """決定要用課程名稱 Excel 裡的哪個分頁名稱來查課表。"""
-    if level in LEVELS_WITH_SEPARATE_PERIOD_SCHEDULE and period:
-        return f"{level}{period}"
-    return level
+def resolve_course_sheet(level, period, course_lookup):
+    """
+    決定要用課程名稱 Excel 裡的哪個分頁來查課表。
+    優先找「班級+日夜」專屬分頁（例如「研經日」），
+    找不到的話自動退回只用班級名稱的分頁（例如「研經」）。
+    回傳 (date_map, matched_key)；matched_key 為 None 代表完全找不到對應分頁。
+    """
+    candidates = []
+    if level and period:
+        candidates.append(f"{level}{period}")
+    if level:
+        candidates.append(level)
+    for key in candidates:
+        if key in course_lookup:
+            return course_lookup[key], key
+    return {}, None
 
 
 def format_level_period(level, period):
@@ -177,12 +227,22 @@ def build_student_records(attendance_files, course_lookup):
         warnings.extend(cell_warnings)
         if level is None:
             warnings.append(f"檔名「{filename}」無法判斷班級（初級/中級/高級/研經），將無法對應課程名稱。")
-        if period is None:
-            warnings.append(f"檔名「{filename}」無法判斷日班／夜班（檔名需包含「日」或「夜」），班別將不顯示日夜。")
-            if level in LEVELS_WITH_SEPARATE_PERIOD_SCHEDULE:
-                warnings.append(f"檔名「{filename}」屬於研經班但無法判斷日夜，可能對應到錯誤的課表。")
-        sheet_key = course_sheet_key(level, period)
-        date_map = course_lookup.get(sheet_key, {})
+
+        date_map, matched_key = resolve_course_sheet(level, period, course_lookup)
+        if matched_key is None and level is not None:
+            warnings.append(
+                f"檔名「{filename}」在課程名稱 Excel 中找不到「{level}」對應的分頁，"
+                f"該班所有缺曠日期都無法對應課程，請確認課程名稱 Excel 的分頁名稱。"
+            )
+        elif period is None and level in LEVELS_WITH_SEPARATE_PERIOD_SCHEDULE:
+            has_split_schedule = any(
+                f"{level}{p}" in course_lookup for p in PERIOD_LABELS
+            )
+            if has_split_schedule:
+                warnings.append(
+                    f"檔名「{filename}」屬於{level}班但無法判斷日夜，"
+                    f"由於課程名稱 Excel 裡有分開的{level}日／{level}夜課表，可能對應到錯誤的課表，請人工確認。"
+                )
         for s in students:
             items = []
             for d in s["absence_dates"]:
