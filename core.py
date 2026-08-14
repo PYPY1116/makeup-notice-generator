@@ -332,7 +332,7 @@ def _tmpl_run(paragraph, text, size=BODY_SIZE, bold=True, underline=False):
     return run
 
 
-def _add_text_with_underlined_phrases(paragraph, text, underline_phrases):
+def _add_text_with_underlined_phrases(paragraph, text, underline_phrases, size=BODY_SIZE):
     """
     Writes `text` into `paragraph`, automatically underlining the first
     occurrence of any phrase in `underline_phrases` that appears in it —
@@ -348,15 +348,104 @@ def _add_text_with_underlined_phrases(paragraph, text, underline_phrases):
             if match_start is None or i < match_start:
                 match_start, match_phrase = i, phrase
     if match_phrase is None:
-        _tmpl_run(paragraph, text)
+        _tmpl_run(paragraph, text, size=size)
         return
     before = remaining[:match_start]
     after = remaining[match_start + len(match_phrase):]
     if before:
-        _tmpl_run(paragraph, before)
-    _tmpl_run(paragraph, match_phrase, underline=True)
+        _tmpl_run(paragraph, before, size=size)
+    _tmpl_run(paragraph, match_phrase, size=size, underline=True)
     if after:
-        _tmpl_run(paragraph, after)
+        _tmpl_run(paragraph, after, size=size)
+
+
+COMPACT_TITLE_SIZE = 13
+COMPACT_BODY_SIZE = 10.5
+
+
+def _write_notice_content(doc, student, org_name, deadline_text, hours_note, late_note,
+                           title_size=TITLE_SIZE, body_size=BODY_SIZE, space_after=6,
+                           blank_lines=True):
+    """
+    把一位學員的補課通知單內容寫進 `doc`。
+    full 版（blank_lines=True）在各區塊間留空行，維持原本官方範本的排版；
+    精簡版（blank_lines=False，合併多人版使用）省略空行、用較小字級，
+    盡量在一頁內塞下多份完整通知單以節省紙張。
+    除了最後一段之外，每一段都設定 keep_with_next，
+    讓 Word 分頁時盡量把整張通知單留在同一頁，不會被硬生生從中間切開。
+    """
+    paragraphs = []
+
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_after = Pt(space_after)
+    _tmpl_run(p, f"{org_name}–補課通知單", size=title_size)
+    paragraphs.append(p)
+
+    if blank_lines:
+        paragraphs.append(doc.add_paragraph())
+
+    level_display = format_level_period(student.get("level"), student.get("period"))
+    p = doc.add_paragraph()
+    p.paragraph_format.space_after = Pt(space_after)
+    _tmpl_run(
+        p,
+        f"班別：{level_display}　　組別：{student.get('group') or ''}　　"
+        f"姓名：{student.get('name','')}　　"
+        f"法名：{student.get('dharma_name') or ''}",
+        size=body_size,
+    )
+    paragraphs.append(p)
+
+    if blank_lines:
+        paragraphs.append(doc.add_paragraph())
+
+    for item in student.get("items", []):
+        p = doc.add_paragraph()
+        p.paragraph_format.space_after = Pt(space_after)
+        _tmpl_run(p, f"缺課日期：{item['date']}　　缺課名稱：{item['course']}", size=body_size)
+        paragraphs.append(p)
+
+    if blank_lines:
+        paragraphs.append(doc.add_paragraph())
+
+    p = doc.add_paragraph()
+    p.paragraph_format.space_after = Pt(space_after)
+    _tmpl_run(p, "請在", size=body_size)
+    _tmpl_run(p, deadline_text, size=body_size, underline=True)
+    _tmpl_run(p, "前，", size=body_size)
+    _add_text_with_underlined_phrases(p, hours_note, underline_phrases=[], size=body_size)
+    paragraphs.append(p)
+
+    p = doc.add_paragraph()
+    p.paragraph_format.space_after = Pt(space_after)
+    _add_text_with_underlined_phrases(p, late_note, underline_phrases=["事先預約"], size=body_size)
+    paragraphs.append(p)
+
+    # 除了整份通知單的最後一段，其餘都設定 keep_with_next，
+    # 讓這份通知單盡量整份留在同一頁，不會被分頁切斷。
+    for p in paragraphs[:-1]:
+        p.paragraph_format.keep_with_next = True
+
+    return paragraphs
+
+
+def _add_thick_divider(doc):
+    """加一條粗分隔線，用來在合併文件裡區隔不同學員的通知單（方便列印後裁剪分發）。"""
+    p = doc.add_paragraph()
+    p.paragraph_format.space_before = Pt(4)
+    p.paragraph_format.space_after = Pt(4)
+    p.paragraph_format.keep_with_next = True
+    pPr = p._p.get_or_add_pPr()
+    pBdr = OxmlElement("w:pBdr")
+    bottom = OxmlElement("w:bottom")
+    bottom.set(qn("w:val"), "single")
+    bottom.set(qn("w:sz"), "24")  # 3pt 粗線
+    bottom.set(qn("w:space"), "1")
+    bottom.set(qn("w:color"), "000000")
+    pBdr.append(bottom)
+    pPr.append(pBdr)
+    return p
 
 
 def build_notice_docx(student, org_name=ORG_NAME, deadline_text=DEFAULT_DEADLINE,
@@ -374,41 +463,39 @@ def build_notice_docx(student, org_name=ORG_NAME, deadline_text=DEFAULT_DEADLINE
     section.right_margin = Cm(2.5)
     section.top_margin = Cm(2.5)
 
-    # Title
-    p = doc.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    _tmpl_run(p, f"{org_name}–補課通知單", size=TITLE_SIZE)
-
-    doc.add_paragraph()
-
-    # 班別（含日夜）／組別／姓名／法名
-    level_display = format_level_period(student.get("level"), student.get("period"))
-    p = doc.add_paragraph()
-    _tmpl_run(
-        p,
-        f"班別：{level_display}　　組別：{student.get('group') or ''}　　"
-        f"姓名：{student.get('name','')}　　"
-        f"法名：{student.get('dharma_name') or ''}",
+    _write_notice_content(
+        doc, student, org_name, deadline_text, hours_note, late_note,
+        title_size=TITLE_SIZE, body_size=BODY_SIZE, space_after=6, blank_lines=True,
     )
 
-    doc.add_paragraph()
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf
 
-    # 缺課日期／缺課名稱 lines — one per actual absence
-    for item in student.get("items", []):
-        p = doc.add_paragraph()
-        _tmpl_run(p, f"缺課日期：{item['date']}　　缺課名稱：{item['course']}")
 
-    doc.add_paragraph()
+def build_combined_notice_docx(students, org_name=ORG_NAME, deadline_text=DEFAULT_DEADLINE,
+                                hours_note=DEFAULT_HOURS_NOTE, late_note=DEFAULT_LATE_NOTE):
+    """
+    把所有學員的補課通知單合併成同一份 Word 文件：
+    版面精簡、字級縮小，盡量在同一頁塞下多份「完整」的通知單以節省紙張，
+    每位學員的通知單之間用一條粗線分隔，方便列印後沿線裁剪分發給個人。
+    """
+    doc = Document()
+    section = doc.sections[0]
+    section.left_margin = Cm(2)
+    section.right_margin = Cm(2)
+    section.top_margin = Cm(1.5)
+    section.bottom_margin = Cm(1.5)
 
-    # Deadline notice (deadline date underlined, matching original template)
-    p = doc.add_paragraph()
-    _tmpl_run(p, "請在")
-    _tmpl_run(p, deadline_text, underline=True)
-    _tmpl_run(p, "前，")
-    _add_text_with_underlined_phrases(p, hours_note, underline_phrases=[])
-
-    p = doc.add_paragraph()
-    _add_text_with_underlined_phrases(p, late_note, underline_phrases=["事先預約"])
+    for idx, student in enumerate(students):
+        _write_notice_content(
+            doc, student, org_name, deadline_text, hours_note, late_note,
+            title_size=COMPACT_TITLE_SIZE, body_size=COMPACT_BODY_SIZE,
+            space_after=2, blank_lines=False,
+        )
+        if idx < len(students) - 1:
+            _add_thick_divider(doc)
 
     buf = io.BytesIO()
     doc.save(buf)
