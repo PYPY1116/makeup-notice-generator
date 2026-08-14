@@ -406,8 +406,8 @@ def _write_notice_content(doc, student, org_name, deadline_text, hours_note, lat
         _tmpl_run(p, f"缺課日期：{item['date']}　　缺課名稱：{item['course']}", size=body_size)
         paragraphs.append(p)
 
-    if blank_lines:
-        paragraphs.append(doc.add_paragraph())
+    # 缺課日期與下面的報到時間說明之間固定空一行，即使是精簡版（合併多人）也保留這個間距
+    paragraphs.append(doc.add_paragraph())
 
     p = doc.add_paragraph()
     p.paragraph_format.space_after = Pt(space_after)
