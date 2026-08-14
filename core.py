@@ -359,8 +359,8 @@ def _add_text_with_underlined_phrases(paragraph, text, underline_phrases, size=B
         _tmpl_run(paragraph, after, size=size)
 
 
-COMPACT_TITLE_SIZE = 13
-COMPACT_BODY_SIZE = 10.5
+COMPACT_TITLE_SIZE = 16
+COMPACT_BODY_SIZE = 14
 
 
 def _write_notice_content(doc, student, org_name, deadline_text, hours_note, late_note,
